@@ -1,16 +1,17 @@
 ### Functions for competitive methods ###
-#' @import     rMultiNet # for HOOI
-
-### Method: SpecCov ###
-SpecCov.fun <- function(sample,alpha.seq,K){
+#' @import     rMultiNet # for TWIST
+#' @import     rTensor # for HOOI
+#' 
+### Method: SpecM ###
+SpecM.fun <- function(sample,alpha.seq,K){
   start <- Sys.time()
   result.seq <- array(NA, dim=c(length(alpha.seq),4)) # loglik alpha NMI HamAcc
   lb.list <- list()
   alpha.i <- 1
   for (alpha in alpha.seq){
-    re.SpecCov <- SpecCov(sample, alpha, K)
-    result.seq[alpha.i,] <- c(re.SpecCov$loglik,alpha,re.SpecCov$NMI,re.SpecCov$HamAcc)
-    lb.list[[alpha.i]] <- list('alpha'=alpha,'label.hat'=re.SpecCov$label.hat)
+    re.SpecM <- SpecM(sample, alpha, K)
+    result.seq[alpha.i,] <- c(re.SpecM$loglik,alpha,re.SpecM$NMI,re.SpecM$HamAcc)
+    lb.list[[alpha.i]] <- list('alpha'=alpha,'label.hat'=re.SpecM$label.hat)
     alpha.i <- alpha.i+1
   }
   result.seq <- as.data.frame(result.seq)
@@ -24,16 +25,16 @@ SpecCov.fun <- function(sample,alpha.seq,K){
   return(output)
 }
 
-### Method: SpecCBA ###
-SpecCBA.fun <- function(sample,alpha.seq,K){
+### Method: SpecMBA ###
+SpecMBA.fun <- function(sample,alpha.seq,K){
   start <- Sys.time()
   result.seq <- array(NA, dim=c(length(alpha.seq),4)) # loglik alpha NMI HamAcc
   lb.list <- list()
   alpha.i <- 1
   for (alpha in alpha.seq){
-    re.SpecCBA <- SpecCBA(sample, alpha, K)
-    result.seq[alpha.i,] <- c(re.SpecCBA$loglik,alpha,re.SpecCBA$NMI,re.SpecCBA$HamAcc)
-    lb.list[[alpha.i]] <- list('alpha'=alpha,'label.hat'=re.SpecCBA$label.hat)
+    re.SpecMBA <- SpecMBA(sample, alpha, K)
+    result.seq[alpha.i,] <- c(re.SpecMBA$loglik,alpha,re.SpecMBA$NMI,re.SpecMBA$HamAcc)
+    lb.list[[alpha.i]] <- list('alpha'=alpha,'label.hat'=re.SpecMBA$label.hat)
     alpha.i <- alpha.i+1
   }
   result.seq <- as.data.frame(result.seq)
@@ -47,15 +48,37 @@ SpecCBA.fun <- function(sample,alpha.seq,K){
   return(output)
 }
 
-SpecCBA.fast.fun <- function(sample,alpha.seq,K){
+SpecM.fun <- function(sample,alpha.seq,K){
   start <- Sys.time()
   result.seq <- array(NA, dim=c(length(alpha.seq),4)) # loglik alpha NMI HamAcc
   lb.list <- list()
   alpha.i <- 1
   for (alpha in alpha.seq){
-    re.SpecCBA <- SpecCBA(sample, alpha, K)
-    result.seq[alpha.i,] <- c(re.SpecCBA$loglik,alpha,re.SpecCBA$NMI,re.SpecCBA$HamAcc)
-    lb.list[[alpha.i]] <- list('alpha'=alpha,'label.hat'=re.SpecCBA$label.hat)
+    re.SpecM <- SpecM(sample, alpha, K)
+    result.seq[alpha.i,] <- c(re.SpecM$loglik,alpha,re.SpecM$NMI,re.SpecM$HamAcc)
+    lb.list[[alpha.i]] <- list('alpha'=alpha,'label.hat'=re.SpecM$label.hat)
+    alpha.i <- alpha.i+1
+  }
+  result.seq <- as.data.frame(result.seq)
+  colnames(result.seq) <- c('loglik','alpha','NMI','HamAcc')
+  max.id <- which.max(result.seq$loglik)
+  
+  end <- Sys.time()
+  time <- difftime(end,start,units = "secs")
+  output <- list("alpha"=result.seq[max.id,'alpha'],"NMI"=result.seq[max.id,'NMI'], 
+                 "HamAcc"=result.seq[max.id,'HamAcc'],"label.hat"=lb.list[[max.id]]$label.hat,"time"=as.numeric(time))
+  return(output)
+}
+
+SpecMBA.fast.fun <- function(sample,alpha.seq,K){
+  start <- Sys.time()
+  result.seq <- array(NA, dim=c(length(alpha.seq),4)) # loglik alpha NMI HamAcc
+  lb.list <- list()
+  alpha.i <- 1
+  for (alpha in alpha.seq){
+    re.SpecMBA <- SpecMBA(sample, alpha, K)
+    result.seq[alpha.i,] <- c(re.SpecMBA$loglik,alpha,re.SpecMBA$NMI,re.SpecMBA$HamAcc)
+    lb.list[[alpha.i]] <- list('alpha'=alpha,'label.hat'=re.SpecMBA$label.hat)
     alpha.i <- alpha.i+1
   }
   result.seq <- as.data.frame(result.seq)
@@ -110,7 +133,7 @@ MeanAdj.fun<-function(sample,K)
   # compute mean adjacency matrix and its Laplacian
   A.bar <- as.matrix(modeMean(A,3,drop=TRUE)@data)
   Lap <- computeLaplacian(A.bar)
-
+  
   eigenvectors <- eigenratio_test(Lap)
   
   # community detection 
@@ -279,16 +302,146 @@ SOSBA.fun <- function(sample,K){
 
 
 
-### Method: HOOI higher order orthogonal iteration ###
-HOOI.fun <- function(sample,K){
+### Method: TWIST ###
+InitializationMMSBM<-function(tnsr, ranks)
+{
+  num_modes <- tnsr@num_modes
+  U_list <- vector("list", num_modes)
+  temp_mat <-matrix(0,ncol=tnsr@modes[1], nrow=tnsr@modes[2])
+  for(i in 1:tnsr@modes[3])
+  {
+    temp_mat=temp_mat+tnsr@data[,,i]
+  }
+  U_list[[1]] <- eigen(temp_mat,symmetric = T)$vector[,c(1:ranks[1])]
+  U_list[[2]] <- U_list[[1]]
+  outer_production=NULL
+  for(i in 1:dim(U_list[[1]])[1])
+  {
+    row_matrix=NULL
+    for (j in 1:dim(U_list[[1]])[2])
+    {
+      temp=U_list[[1]][i,j]*U_list[[2]]
+      row_matrix=cbind(row_matrix,temp)
+    }
+    outer_production=rbind(outer_production,row_matrix)
+  }
+  temp_mat <- rs_unfold(tnsr, m = 3)@data %*% outer_production
+  U_list[[3]] <- svd(temp_mat, nu = ranks[3])$u
+  return(U_list)
+}
+
+norm_vec <- function(x) sqrt(sum(x^2))
+reg_vec <- function(x,delta) min(delta,norm_vec(x))/norm_vec(x)*x
+
+PowerIteration<- function(tnsr, ranks=NULL, type="TWIST", U_0_list, delta1=1000, delta2=1000, max_iter = 20, tol = 1e-04)
+{
+  stopifnot(is(tnsr, "Tensor"))
+  if (is.null(ranks))
+    stop("ranks must be specified")
+  if (sum(ranks > tnsr@modes) != 0)
+    stop("ranks must be smaller than the corresponding mode")
+  if (sum(ranks <= 0) != 0)
+    stop("ranks must be positive")
+  if(type == "TWIST")
+  {
+    num_modes <- tnsr@num_modes
+    U_list <- U_0_list
+    tnsr_norm <- fnorm(tnsr)
+    curr_iter <- 1
+    converged <- FALSE
+    fnorm_resid <- rep(0, max_iter)
+    CHECK_CONV <- function(Z, U_list) {
+      est <- ttl(Z, U_list, ms = 1:num_modes)
+      curr_resid <- fnorm(tnsr - est)
+      fnorm_resid[curr_iter] <<- curr_resid
+      if (curr_iter == 1)
+        return(FALSE)
+      if (abs(curr_resid - fnorm_resid[curr_iter - 1])/tnsr_norm <
+          tol)
+        return(TRUE)
+      else {
+        return(FALSE)
+      }
+    }
+    pb <- txtProgressBar(min = 0, max = max_iter, style = 3)
+    while ((curr_iter < max_iter) && (!converged)) {
+      cat("iteration", curr_iter, "\n")
+      setTxtProgressBar(pb, curr_iter)
+      modes <- tnsr@modes
+      modes_seq <- 1:num_modes
+      
+      ##Regularization
+      U_list_reg = U_list
+      for(m in modes_seq)
+      {
+        if(m == 1 | m == 2)
+        {
+          U_list_reg[[m]] = as.matrix(apply(U_list_reg[[m]],1,reg_vec, delta=delta1))
+          if(ranks[m]!=1){
+            U_list_reg[[m]] = t(U_list_reg[[m]])
+          }
+        }
+        if(m == 3)
+        {
+          U_list_reg[[m]] = as.matrix(apply(U_list_reg[[m]],1,reg_vec, delta=delta2))
+          if(ranks[m]!=1){
+            U_list_reg[[m]] = t(U_list_reg[[m]])
+          }
+        }
+      }
+      
+      ##Iterate
+      
+      for (m in modes_seq) {
+        mat_list <- lapply(U_list_reg[-m], t)
+        X <- ttl(tnsr, mat_list, ms = modes_seq[-m])
+        U_list[[m]] <- svd(rs_unfold(X, m = m)@data, nu = ranks[m])$u
+      }
+      
+      Z <- ttm(X, mat = t(U_list[[num_modes]]), m = num_modes)
+      
+      if (CHECK_CONV(Z, U_list)) {
+        converged <- TRUE
+        setTxtProgressBar(pb, max_iter)
+      }else {
+        curr_iter <- curr_iter + 1
+      }
+    }
+    close(pb)
+    fnorm_resid <- fnorm_resid[fnorm_resid != 0]
+    norm_percent <- (1 - (tail(fnorm_resid, 1)/tnsr_norm))*100
+    est <- ttl(Z, U_list, ms = 1:num_modes)
+    invisible(list(Z = Z, U = U_list, conv = converged, est = est,
+                   norm_percent = norm_percent, fnorm_resid = tail(fnorm_resid,
+                                                                   1), all_resids = fnorm_resid))
+    network_embedding <- U_list[[3]]
+    node_embedding <- U_list[[1]]
+    output <- list("Z"=Z, "network_embedding"=network_embedding,"node_embedding"=node_embedding)
+    return(output)
+  }
+  if(type == "TUCKER")
+  {
+    decomp=tucker(arrT,ranks,max_iter = 10000,tol=1e-05)
+    nodes_embedding_Our=decomp[["U"]][[1]] #nodes' embedding
+    network_embedding=decomp[["U"]][[3]] #layers' embedding
+    Z = decomp[["Z"]]
+    output <- list("Z"=Z, "network_embedding"=network_embedding,"node_embedding"=node_embedding)
+    return(output)
+  }
+}
+
+# main function for TWIST
+TWIST.fun <- function(sample,K,M){
   start <- Sys.time()
   A <- sample$adjT
   N <- dim(A)[1]
   L <- dim(A)[3]
   label <- sample$global_membership
   
-  tucker.re <- tucker(A,ranks=c(K,K,1))
-  U <- tucker.re$U[[1]]
+  # Tensor decomposition by TWIST
+  U_0_list <- InitializationMMSBM(A, ranks=c(K,K,M))
+  decomp <- PowerIteration(A, ranks=c(K,K,M), type="TWIST", U_0_list, delta1=1000, delta2=1000, max_iter = 20, tol = 1e-04)
+  U <- decomp$node_embedding
   
   # community detection 
   get.est.flag <- FALSE
@@ -321,3 +474,44 @@ HOOI.fun <- function(sample,K){
   return(output)
 }
 
+### Method: HOOI higher order orthogonal iteration ###
+HOOI.fun <- function(sample,K){
+  start <- Sys.time()
+  A <- sample$adjT
+  N <- dim(A)[1]
+  L <- dim(A)[3]
+  label <- sample$global_membership
+
+  tucker.re <- tucker(A,ranks=c(K,K,1))
+  U <- tucker.re$U[[1]]
+
+  # community detection
+  get.est.flag <- FALSE
+  temp <- list()
+  try.temp <- 1
+  while(!get.est.flag){
+    temp <- try(kmeans(U, K, nstart = 10),silent=TRUE)
+    if('try-error' %in% class(temp)) # judge weather error occurs
+    {
+      try.temp <- try.temp + 1
+      if (try.temp == 3)
+      {
+        stop("There seems to be an issue with the initialization within the kmeans step. Please run the algorithm again.")
+      }
+      next
+    }else{
+      get.est.flag <- TRUE
+    }
+  }
+  kmeans.re <- temp
+  label.hat <- kmeans.re$cluster
+
+  # metric
+  NMI <- nmi(label,label.hat)
+  HamAcc <- MCrate(label, label.hat)
+
+  end <- Sys.time()
+  time <- difftime(end,start,units = "secs")
+  output <- list("NMI"=NMI, "HamAcc"=HamAcc,"time"=as.numeric(time))
+  return(output)
+}

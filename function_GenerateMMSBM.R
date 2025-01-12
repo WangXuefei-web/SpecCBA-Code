@@ -59,7 +59,7 @@ generate_tensor<-function(n,m,K,L,r,d,Pi,Pi_network_type)
 
   if(is.null(Pi_network_type))
   {
-    Pi_network_type=rep(1/M,M);
+    Pi_network_type=rep(1/m,m);
   }
 
   ###Assign network type for each layer
@@ -85,18 +85,16 @@ generate_tensor<-function(n,m,K,L,r,d,Pi,Pi_network_type)
 }
 
 
-GenerateMMSBM <- function(n,m,L,K,d=NULL,r=NULL)
+GenerateMMSBM <- function(n,m,L,K,Pi=NULL,d=NULL,r=NULL)
 {
 
   ###Initialize the average degree list
   if (is.null(d))
   {
     d_list = abs(rnorm(L,5,5))
-  }
-  else if (length(d)==L){
+  }else if (length(d)==L){
     d_list = d
-  }
-  else{
+  }else{
     d_list = rep(d,L)
   }
    
@@ -105,19 +103,22 @@ GenerateMMSBM <- function(n,m,L,K,d=NULL,r=NULL)
   if (is.null(r))
   {
     r_list = rep(0.4,L)
-  }
-  else if (length(r)==L)
+  }else if (length(r)==L)
   {
     r_list = r
-  }
-  else
+  }else
   {
     r_list = rep(r,L)
   }
  
+  ### Initialize the community size
   Pi_network_type = rep(1/m,m)
-  Pi_network_community = rep(1/K,K)
-  library(rTensor)
+  if (is.null(Pi)){
+    Pi_network_community = rep(1/K,K) # balanced community
+  }else{
+    Pi_network_community = Pi/sum(Pi)
+  }
+  #library(rTensor)
   temp = generate_tensor(n=n,m=m,K=K,L=L,r=r_list,d=d_list,Pi=Pi_network_community,Pi_network_type=Pi_network_type)
   arrT = temp[[1]]
   Global_node_type_power = temp[[2]]
@@ -133,56 +134,49 @@ GenerateMMSBM <- function(n,m,L,K,d=NULL,r=NULL)
 # B is given in the following function
 generate_sbm_givenB<-function(n,K,r,d,membership,typeB)
 {
-  # designed for K = 3 or 5
+  # particularly designed for K = 3
   p=0.6*d/n
   q=r*p
   B=matrix(q,K,K)
-  if (K==3){
+  if (K>=3){
     if (typeB == 0){
       diag(B)=p
       B[1,2]=p
       B[2,1]=p
-    }
-    else if (typeB == 1){
+    }else if (typeB == 1){
       diag(B)=p
       B[2,3]=p
       B[3,2]=p
-    }
-    else if (typeB == 2){
+    }else if (typeB == 2){
       B[1,1]=p
       B[1,3]=p
       B[3,1]=p
       B[3,3]=p
-    }
-    else if (typeB == 3){
+    }else if (typeB == 3){
       B[1,1]=p
-    }
-  }
-  else if (K==5){
-    if (typeB == 0){
+    }else if (typeB == 4){ #disassortative
+      B[1:3,2]=p
+      B[2,1:3]=p
+    }else if (typeB == 5){ #disassortative
+      B[1,3]=p
+      B[3,1]=p
+      B[2,3]=p#
+      B[3,2]=p#
+    }else if (typeB == 6){ #disassortative
+      B[1,3]=p#
+      B[3,1]=p#
+      B[1,2]=p#
+      B[2,1]=p#
+      #B[upper.tri(B,diag = FALSE)]=p
+      #B[lower.tri(B,diag = FALSE)]=p
+    }else{
       diag(B)=p
-      B[1:3,1:3]=p
-      B[4:5,4:5]=p
-
     }
-    else if (typeB == 1){
-      diag(B)=p
-      B[1:2,1:2]=p
-      #B[3:4,3:4]=p
-      #B[5,5]=p
-    }
-    else if (typeB == 2){
-      B[1,1]=p
-      B[2,2]=p
-      #B[3:5,3:5]=p
-    }
-    else if (typeB == 3){
-      B[c(1,3),c(1,3)]=p
-    }
-  }
-  else{
+    diag(B)[-1:-3]=p
+  }else{
     diag(B)=p
   }
+    
   
   Z=matrix(0,nrow=n,ncol=K)
   for(i in 1:n)
@@ -206,7 +200,7 @@ generate_sbm_givenB<-function(n,K,r,d,membership,typeB)
 }
 
 
-generate_tensor_givenB<-function(n,m,K,L,r,d,Pi,Pi_network_type)
+generate_tensor_givenB<-function(n,m,K,L,r,d,Pi,Pi_network_type,disass)
 {
   ###Generate Membership matrix n by m
   local_membership=matrix(NA,nrow=n,ncol=m)
@@ -223,14 +217,21 @@ generate_tensor_givenB<-function(n,m,K,L,r,d,Pi,Pi_network_type)
   
   ###Assign network type for each layer
   network_type=sample(x = m, size = L, replace = TRUE, prob = Pi_network_type)
-  # B_type=c(1,2,3,4) # designed for complementary layers
+  # B_type=c(0,1,2,3) # designed for assortative complementary layers
+  # B_type=c(0,1,2,4,5,6) # designed for mixed complementary layers
+  disass.B=c(0,1,2,4,5,6)
   mylist=list()
-  
   for (i in 1:L)
   {
+    if (!disass)
     mylist[[i]]=generate_sbm_givenB(n=n,K=K,r=r[i],d=d[i],
                                     membership=local_membership[,network_type[i]],
                                     typeB=(i-1)%%4)
+    else{ # three more disassortative layers
+    mylist[[i]]=generate_sbm_givenB(n=n,K=K,r=r[i],d=d[i],
+                                      membership=local_membership[,network_type[i]],
+                                      typeB=disass.B[((i-1)%%6)+1]) 
+    }
   }
   
   global_membership=rep(0,n)
@@ -246,27 +247,25 @@ generate_tensor_givenB<-function(n,m,K,L,r,d,Pi,Pi_network_type)
 }
 
 
-GenerateComplementaryMLSBM <- function(n,m,L,K,d=NULL,r=NULL)
+GenerateComplementaryMLSBM <- function(n,m,L,K,Pi=NULL,d=NULL,r=NULL,disass=FALSE)
 {
   
-  ###Initialize the average degree list
+  ### Initialize the average degree list
   if (is.null(d))
   {
     d_list = abs(rnorm(L,5,5))
-  }
-  else if (length(d)==L){
+  }else if (length(d)==L){
     d_list = d
   }
   else{
     d_list = rep(d,L)
   }
   
-  ###Initialize the out-in ratio of each layer list
+  ### Initialize the out-in ratio of each layer list
   if (is.null(r))
   {
     r_list = rep(0.4,L)
-  }
-  else if (length(r)==L)
+  }else if (length(r)==L)
   {
     r_list = r
   }
@@ -275,10 +274,17 @@ GenerateComplementaryMLSBM <- function(n,m,L,K,d=NULL,r=NULL)
     r_list = rep(r,L)
   }
   
+  ### Initialize the community size
   Pi_network_type = rep(1/m,m)
-  Pi_network_community = rep(1/K,K)
-  library(rTensor)
-  temp = generate_tensor_givenB(n=n,m=m,K=K,L=L,r=r_list,d=d_list,Pi=Pi_network_community,Pi_network_type=Pi_network_type)
+  if (is.null(Pi)){
+    Pi_network_community = rep(1/K,K) # balabced community
+  }
+  else{
+    Pi_network_community = Pi/sum(Pi)
+  }
+  
+  #library(rTensor)
+  temp = generate_tensor_givenB(n=n,m=m,K=K,L=L,r=r_list,d=d_list,Pi=Pi_network_community,Pi_network_type=Pi_network_type,disass)
   arrT = temp[[1]]
   Global_node_type_power = temp[[2]]
   number_global_community = length(unique(Global_node_type_power))
